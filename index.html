@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClipZone Pro — Batch Video Clipper</title>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b0b12;
+      --surface: #151522;
+      --card: #1c1c2e;
+      --border: #2e2e48;
+      --text: #f0eef8;
+      --muted: #9b97b0;
+      --accent: #8b5cf6;
+      --accent-hover: #a78bfa;
+      --success: #34d399;
+      --danger: #f87171;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .logo {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .logo span { color: var(--accent); }
+
+    .badge {
+      font-size: 0.7rem;
+      background: var(--accent);
+      color: white;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+    }
+
+    .hero {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-size: clamp(1.7rem, 4vw, 2.3rem);
+      margin-bottom: 8px;
+    }
+    .hero p { color: var(--muted); font-size: 1.05rem; }
+
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 48px 24px;
+      text-align: center;
+      background: var(--card);
+      transition: border-color 0.2s, background 0.2s;
+      cursor: pointer;
+      margin-bottom: 28px;
+    }
+    .upload-zone:hover,
+    .upload-zone.dragover {
+      border-color: var(--accent);
+      background: #1f1a33;
+    }
+    .upload-zone.has-file {
+      border-style: solid;
+      padding: 18px 20px;
+    }
+    .upload-icon { font-size: 2.8rem; margin-bottom: 12px; opacity: 0.85; }
+    .upload-zone p { color: var(--muted); margin-top: 6px; }
+    .upload-zone strong { color: var(--text); }
+    input[type="file"] { display: none; }
+
+    .player-section { display: none; }
+    .player-section.active { display: block; }
+
+    .video-wrap {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 16px;
+      aspect-ratio: 16/9;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #000;
+    }
+
+    .time-display {
+      display: flex;
+      justify-content: space-between;
+      font-family: ui-monospace, monospace;
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .timeline {
+      position: relative;
+      height: 48px;
+      background: var(--card);
+      border-radius: 10px;
+      margin: 12px 0 8px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      user-select: none;
+    }
+    .timeline-track {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, #2a2540, #1c1c2e);
+    }
+    .selection {
+      position: absolute;
+      top: 0; bottom: 0;
+      background: rgba(139, 92, 246, 0.35);
+      border-left: 3px solid var(--accent);
+      border-right: 3px solid var(--accent);
+      pointer-events: none;
+    }
+    .handle {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 14px;
+      background: var(--accent);
+      cursor: ew-resize;
+      z-index: 5;
+      border-radius: 3px;
+    }
+    .handle::after {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 3px; height: 18px;
+      background: white;
+      border-radius: 2px;
+    }
+    .playhead {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: #fff;
+      z-index: 4;
+      pointer-events: none;
+    }
+
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin: 16px 0;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 11px 16px;
+      border-radius: 10px;
+      border: none;
+      font-weight: 600;
+      font-size: 0.93rem;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: #25253a; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+    }
+    .btn-ghost:hover { color: var(--text); }
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid transparent;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+    }
+    .btn-danger:hover { background: rgba(248,113,113,0.12); }
+
+    .time-inputs {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 14px 0;
+    }
+    .time-group {
+      flex: 1;
+      min-width: 120px;
+    }
+    .time-group label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .time-group input {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: ui-monospace, monospace;
+    }
+    .time-group input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .batch-section {
+      margin-top: 28px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .batch-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .batch-header h2 {
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    .batch-count {
+      background: var(--accent);
+      color: white;
+      font-size: 0.75rem;
+      padding: 2px 9px;
+      border-radius: 999px;
+      margin-left: 8px;
+    }
+
+    .clip-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 320px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+    }
+    .clip-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .clip-item .num {
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 28px;
+    }
+    .clip-item .info {
+      flex: 1;
+      min-width: 0;
+    }
+    .clip-item .name {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .clip-item .times {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-family: ui-monospace, monospace;
+    }
+    .clip-item input.name-edit {
+      width: 100%;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .clip-item input.name-edit:focus {
+      border-color: var(--accent);
+      outline: none;
+      background: var(--bg);
+    }
+
+    .empty-batch {
+      text-align: center;
+      color: var(--muted);
+      padding: 24px 10px;
+      font-size: 0.95rem;
+    }
+
+    .progress-box {
+      display: none;
+      margin: 20px 0 0;
+      padding: 18px;
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .progress-box.active { display: block; }
+    .progress-bar {
+      height: 8px;
+      background: #2a2a40;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 10px 0 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #c084fc);
+      width: 0%;
+      transition: width 0.2s;
+    }
+    .progress-text {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .result-box {
+      display: none;
+      margin-top: 18px;
+      padding: 18px;
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--success);
+      text-align: center;
+    }
+    .result-box.active { display: block; }
+    .result-box h3 { color: var(--success); margin-bottom: 10px; }
+
+    footer {
+      text-align: center;
+      padding: 28px 20px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+
+    .note {
+      font-size: 0.83rem;
+      color: var(--muted);
+      margin-top: 14px;
+      text-align: center;
+    }
+
+    @media (max-width: 600px) {
+      .controls-row { flex-direction: column; align-items: stretch; }
+      .btn { justify-content: center; }
+      .clip-item { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">Clip<span>Zone</span> Pro <span class="badge">Batch</span></div>
+    <span style="color:var(--muted);font-size:0.9rem;">Local • Private • Fast</span>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>Batch video clipper</h1>
+      <p>Upload once → mark many ranges → download all clips as a ZIP</p>
+    </div>
+
+    <div class="upload-zone" id="dropZone">
+      <div class="upload-icon">🎬</div>
+      <strong>Drop a video here</strong>
+      <p>or click to browse (MP4, WebM, MOV…)</p>
+      <input type="file" id="fileInput" accept="video/*" />
+    </div>
+
+    <section class="player-section" id="playerSection">
+      <div class="video-wrap">
+        <video id="video" controls playsinline></video>
+      </div>
+
+      <div class="time-display">
+        <span id="currentTime">0:00</span>
+        <span id="durationLabel">0:00</span>
+      </div>
+
+      <div class="timeline" id="timeline">
+        <div class="timeline-track"></div>
+        <div class="selection" id="selection"></div>
+        <div class="handle" id="handleStart" style="left:0%"></div>
+        <div class="handle" id="handleEnd" style="left:100%"></div>
+        <div class="playhead" id="playhead"></div>
+      </div>
+
+      <div class="time-inputs">
+        <div class="time-group">
+          <label>Start time</label>
+          <input type="text" id="startInput" value="0:00" />
+        </div>
+        <div class="time-group">
+          <label>End time</label>
+          <input type="text" id="endInput" value="0:00" />
+        </div>
+        <div class="time-group">
+          <label>Length</label>
+          <input type="text" id="lengthDisplay" value="0:00" readonly style="opacity:0.7" />
+        </div>
+        <div class="time-group">
+          <label>Clip name (optional)</label>
+          <input type="text" id="clipNameInput" placeholder="e.g. Hook, Highlight 1…" />
+        </div>
+      </div>
+
+      <div class="controls-row">
+        <button class="btn btn-secondary" id="previewBtn">▶ Preview</button>
+        <button class="btn btn-primary" id="addClipBtn">
+          + Add to Batch
+        </button>
+        <button class="btn btn-ghost" id="resetBtn">Reset range</button>
+      </div>
+
+      <div class="batch-section">
+        <div class="batch-header">
+          <h2>Batch clips <span class="batch-count" id="batchCount">0</span></h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary" id="clearBatchBtn" style="padding:8px 12px;font-size:0.85rem">Clear all</button>
+            <button class="btn btn-primary" id="processBtn" disabled>
+              ✂ Process & Download ZIP
+            </button>
+          </div>
+        </div>
+
+        <div class="clip-list" id="clipList">
+          <div class="empty-batch" id="emptyBatch">
+            No clips yet. Select a range above and click “Add to Batch”.
+          </div>
+        </div>
+
+        <div class="progress-box" id="progressBox">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong id="progressTitle">Processing…</strong>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <p class="progress-text" id="progressText">Preparing…</p>
+        </div>
+
+        <div class="result-box" id="resultBox">
+          <h3>✓ All clips ready!</h3>
+          <p id="resultInfo" style="color:var(--muted);margin-bottom:14px"></p>
+          <a id="downloadLink" class="btn btn-primary" download>Download ZIP</a>
+        </div>
+      </div>
+
+      <p class="note">
+        All processing stays in your browser. Large videos or many clips can take several minutes the first time FFmpeg loads.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    ClipZone Pro · Batch mode · 100% client-side
+  </footer>
+
+  <script>
+    const { FFmpeg } = FFmpegWASM;
+    const { fetchFile, toBlobURL } = FFmpegUtil;
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const playerSection = document.getElementById('playerSection');
+    const video = document.getElementById('video');
+    const timeline = document.getElementById('timeline');
+    const selection = document.getElementById('selection');
+    const handleStart = document.getElementById('handleStart');
+    const handleEnd = document.getElementById('handleEnd');
+    const playhead = document.getElementById('playhead');
+    const currentTimeEl = document.getElementById('currentTime');
+    const durationLabel = document.getElementById('durationLabel');
+    const startInput = document.getElementById('startInput');
+    const endInput = document.getElementById('endInput');
+    const lengthDisplay = document.getElementById('lengthDisplay');
+    const clipNameInput = document.getElementById('clipNameInput');
+    const previewBtn = document.getElementById('previewBtn');
+    const addClipBtn = document.getElementById('addClipBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const clearBatchBtn = document.getElementById('clearBatchBtn');
+    const processBtn = document.getElementById('processBtn');
+    const clipList = document.getElementById('clipList');
+    const emptyBatch = document.getElementById('emptyBatch');
+    const batchCount = document.getElementById('batchCount');
+    const progressBox = document.getElementById('progressBox');
+    const progressFill = document.getElementById('progressFill');
+    const progressPercent = document.getElementById('progressPercent');
+    const progressText = document.getElementById('progressText');
+    const progressTitle = document.getElementById('progressTitle');
+    const resultBox = document.getElementById('resultBox');
+    const resultInfo = document.getElementById('resultInfo');
+    const downloadLink = document.getElementById('downloadLink');
+
+    let duration = 0;
+    let startTime = 0;
+    let endTime = 0;
+    let currentFile = null;
+    let ffmpeg = null;
+    let ffmpegLoaded = false;
+    let dragging = null;
+    let clips = [];
+
+    function formatTime(sec) {
+      if (!isFinite(sec) || sec < 0) sec = 0;
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      const ms = Math.floor((sec % 1) * 100);
+      return `\( {m}: \){s.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
+    }
+
+    function parseTime(str) {
+      const parts = str.trim().split(':');
+      if (parts.length === 1) return parseFloat(parts[0]) || 0;
+      if (parts.length === 2) {
+        const m = parseInt(parts[0], 10) || 0;
+        const s = parseFloat(parts[1]) || 0;
+        return m * 60 + s;
+      }
+      return 0;
+    }
+
+    function updateUI() {
+      const startPct = duration ? (startTime / duration) * 100 : 0;
+      const endPct = duration ? (endTime / duration) * 100 : 100;
+
+      selection.style.left = startPct + '%';
+      selection.style.width = (endPct - startPct) + '%';
+      handleStart.style.left = `calc(${startPct}% - 7px)`;
+      handleEnd.style.left = `calc(${endPct}% - 7px)`;
+
+      startInput.value = formatTime(startTime);
+      endInput.value = formatTime(endTime);
+      lengthDisplay.value = formatTime(Math.max(0, endTime - startTime));
+
+      addClipBtn.disabled = !(endTime > startTime + 0.05);
+    }
+
+    function setPlayhead(t) {
+      if (!duration) return;
+      playhead.style.left = (t / duration) * 100 + '%';
+      currentTimeEl.textContent = formatTime(t);
+    }
+
+    function renderBatch() {
+      batchCount.textContent = clips.length;
+      processBtn.disabled = clips.length === 0;
+
+      if (clips.length === 0) {
+        clipList.innerHTML = '';
+        clipList.appendChild(emptyBatch);
+        emptyBatch.style.display = 'block';
+        return;
+      }
+      emptyBatch.style.display = 'none';
+
+      clipList.innerHTML = clips.map((c, i) => `
+        <div class="clip-item" data-id="${c.id}">
+          <div class="num">#${i + 1}</div>
+          <div class="info">
+            <input class="name-edit" value="\( {c.name.replace(/"/g, '&quot;')}" data-id=" \){c.id}" />
+            <div class="times">${formatTime(c.start)} → ${formatTime(c.end)} · ${formatTime(c.end - c.start)}</div>
+          </div>
+          <button class="btn btn-secondary" style="padding:6px 10px;font-size:0.8rem" onclick="previewClip(${c.start}, ${c.end})">▶</button>
+          <button class="btn btn-danger" onclick="removeClip('${c.id}')">✕</button>
+        </div>
+      `).join('');
+
+      clipList.querySelectorAll('.name-edit').forEach(inp => {
+        inp.addEventListener('change', (e) => {
+          const id = e.target.dataset.id;
+          const clip = clips.find(c => c.id === id);
+          if (clip) clip.name = e.target.value.trim() || clip.name;
+        });
+      });
+    }
+
+    window.removeClip = function(id) {
+      clips = clips.filter(c => c.id !== id);
+      renderBatch();
+    };
+
+    window.previewClip = function(start, end) {
+      startTime = start;
+      endTime = end;
+      updateUI();
+      video.currentTime = start;
+      video.play();
+    };
+
+    function loadFile(file) {
+      if (!file || !file.type.startsWith('video/')) {
+        alert('Please select a valid video file.');
+        return;
+      }
+      currentFile = file;
+      const url = URL.createObjectURL(file);
+      video.src = url;
+      video.load();
+
+      dropZone.classList.add('has-file');
+      dropZone.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="text-align:left">
+            <strong style="font-size:1.05rem">${file.name}</strong>
+            <p style="color:var(--muted);margin:4px 0 0">${(file.size / 1024 / 1024).toFixed(1)} MB</p>
+          </div>
+          <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">Change video</button>
+        </div>
+      `;
+      dropZone.appendChild(fileInput);
+
+      playerSection.classList.add('active');
+      resultBox.classList.remove('active');
+      progressBox.classList.remove('active');
+      clips = [];
+      renderBatch();
+    }
+
+    dropZone.addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON') fileInput.click();
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) loadFile(fileInput.files[0]);
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+    });
+
+    video.addEventListener('loadedmetadata', () => {
+      duration = video.duration;
+      startTime = 0;
+      endTime = Math.min(30, duration);
+      durationLabel.textContent = formatTime(duration);
+      updateUI();
+      setPlayhead(0);
+    });
+
+    video.addEventListener('timeupdate', () => {
+      setPlayhead(video.currentTime);
+      if (video.currentTime >= endTime - 0.05) {
+        video.pause();
+      }
+    });
+
+    function getTimeFromX(clientX) {
+      const rect = timeline.getBoundingClientRect();
+      let pct = (clientX - rect.left) / rect.width;
+      pct = Math.max(0, Math.min(1, pct));
+      return pct * duration;
+    }
+
+    handleStart.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      dragging = 'start';
+    });
+    handleEnd.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      dragging = 'end';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging || !duration) return;
+      const t = getTimeFromX(e.clientX);
+      if (dragging === 'start') {
+        startTime = Math.min(t, endTime - 0.1);
+      } else {
+        endTime = Math.max(t, startTime + 0.1);
+      }
+      updateUI();
+    });
+    window.addEventListener('mouseup', () => { dragging = null; });
+
+    handleStart.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      dragging = 'start';
+    }, { passive: false });
+    handleEnd.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      dragging = 'end';
+    }, { passive: false });
+    window.addEventListener('touchmove', (e) => {
+      if (!dragging || !duration) return;
+      const t = getTimeFromX(e.touches[0].clientX);
+      if (dragging === 'start') startTime = Math.min(t, endTime - 0.1);
+      else endTime = Math.max(t, startTime + 0.1);
+      updateUI();
+    }, { passive: false });
+    window.addEventListener('touchend', () => { dragging = null; });
+
+    timeline.addEventListener('click', (e) => {
+      if (e.target.classList.contains('handle')) return;
+      const t = getTimeFromX(e.clientX);
+      video.currentTime = t;
+    });
+
+    startInput.addEventListener('change', () => {
+      startTime = Math.max(0, Math.min(parseTime(startInput.value), endTime - 0.1));
+      updateUI();
+    });
+    endInput.addEventListener('change', () => {
+      endTime = Math.min(duration, Math.max(parseTime(endInput.value), startTime + 0.1));
+      updateUI();
+    });
+
+    previewBtn.addEventListener('click', () => {
+      video.currentTime = startTime;
+      video.play();
+    });
+
+    resetBtn.addEventListener('click', () => {
+      startTime = 0;
+      endTime = duration;
+      updateUI();
+      video.currentTime = 0;
+    });
+
+    addClipBtn.addEventListener('click', () => {
+      if (endTime <= startTime + 0.05) return;
+
+      const name = clipNameInput.value.trim() || `Clip ${clips.length + 1}`;
+      const id = 'c' + Date.now() + Math.random().toString(36).slice(2, 7);
+
+      clips.push({
+        id,
+        name,
+        start: startTime,
+        end: endTime
+      });
+
+      renderBatch();
+      clipNameInput.value = '';
+    });
+
+    clearBatchBtn.addEventListener('click', () => {
+      if (clips.length && confirm('Clear all clips from the batch?')) {
+        clips = [];
+        renderBatch();
+        resultBox.classList.remove('active');
+      }
+    });
+
+    async function loadFFmpeg() {
+      if (ffmpegLoaded) return;
+      progressBox.classList.add('active');
+      progressTitle.textContent = 'Loading FFmpeg…';
+      progressText.textContent = 'Downloading engine (only once per session)';
+      progressFill.style.width = '8%';
+      progressPercent.textContent = '8%';
+
+      ffmpeg = new FFmpeg();
+      ffmpeg.on('log', () => {});
+      ffmpeg.on('progress', ({ progress }) => {});
+
+      const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      });
+      ffmpegLoaded = true;
+    }
+
+    processBtn.addEventListener('click', async () => {
+      if (!currentFile || clips.length === 0) return;
+
+      processBtn.disabled = true;
+      addClipBtn.disabled = true;
+      resultBox.classList.remove('active');
+      progressBox.classList.add('active');
+      progressFill.style.width = '0%';
+      progressPercent.textContent = '0%';
+      progressTitle.textContent = 'Preparing…';
+      progressText.textContent = 'Loading FFmpeg engine…';
+
+      try {
+        await loadFFmpeg();
+
+        const inputName = 'input' + (currentFile.name.match(/\.\w+$/) || ['.mp4'])[0];
+        await ffmpeg.writeFile(inputName, await fetchFile(currentFile));
+
+        const zip = new JSZip();
+        const total = clips.length;
+
+        for (let i = 0; i < total; i++) {
+          const clip = clips[i];
+          const safeName = clip.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || `clip_${i+1}`;
+          const outputName = `\( {String(i+1).padStart(2,'0')}_ \){safeName}.mp4`;
+
+          progressTitle.textContent = `Clipping ${i + 1} of ${total}`;
+          progressText.textContent = `"\( {clip.name}" ( \){formatTime(clip.start)} → ${formatTime(clip.end)})`;
+          const basePct = Math.round((i / total) * 100);
+          progressFill.style.width = basePct + '%';
+          progressPercent.textContent = basePct + '%';
+
+          await ffmpeg.exec([
+            '-ss', clip.start.toFixed(3),
+            '-to', clip.end.toFixed(3),
+            '-i', inputName,
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y',
+            outputName
+          ]);
+
+          const data = await ffmpeg.readFile(outputName);
+          zip.file(outputName, data.buffer);
+          await ffmpeg.deleteFile(outputName);
+
+          const donePct = Math.round(((i + 1) / total) * 100);
+          progressFill.style.width = donePct + '%';
+          progressPercent.textContent = donePct + '%';
+        }
+
+        progressTitle.textContent = 'Creating ZIP…';
+        progressText.textContent = 'Packing all clips together';
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+        const url = URL.createObjectURL(zipBlob);
+        downloadLink.href = url;
+        const base = currentFile.name.replace(/\.\w+$/, '') || 'clips';
+        downloadLink.download = `${base}_clips.zip`;
+        resultInfo.textContent = `\( {total} clip \){total > 1 ? 's' : ''} · ${(zipBlob.size / 1024 / 1024).toFixed(1)} MB total`;
+        resultBox.classList.add('active');
+
+        progressTitle.textContent = 'Done!';
+        progressText.textContent = 'All clips are ready for download.';
+        progressFill.style.width = '100%';
+        progressPercent.textContent = '100%';
+
+        await ffmpeg.deleteFile(inputName);
+      } catch (err) {
+        console.error(err);
+        progressTitle.textContent = 'Error';
+        progressText.textContent = err.message || 'Something went wrong. Try fewer / shorter clips or a smaller source file.';
+        progressFill.style.width = '0%';
+      } finally {
+        processBtn.disabled = clips.length === 0;
+        addClipBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
