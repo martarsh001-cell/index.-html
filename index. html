@@ -1,0 +1,200 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClipZone | Video Clipping</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0b0b12;
+      color: white;
+    }
+    header {
+      padding: 22px 18px;
+      background: #151522;
+      border-bottom: 1px solid #303044;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo { font-size: 24px; font-weight: bold; }
+    .logo span { color: #a78bfa; }
+    .hero {
+      padding: 38px 20px;
+      text-align: center;
+      background: linear-gradient(145deg, #21153c, #0b0b12);
+    }
+    h1 { font-size: 34px; margin-bottom: 12px; }
+    .hero p { color: #c4bfd6; line-height: 1.6; }
+    .button {
+      display: inline-block;
+      background: #8b5cf6;
+      color: white;
+      border: 0;
+      padding: 13px 20px;
+      border-radius: 10px;
+      font-weight: bold;
+      text-decoration: none;
+      margin-top: 12px;
+    }
+    main { padding: 20px; max-width: 850px; margin: auto; }
+    h2 { margin-top: 30px; }
+    .card {
+      background: #171723;
+      padding: 17px;
+      border: 1px solid #303044;
+      border-radius: 14px;
+      margin: 15px 0;
+    }
+    input, textarea {
+      width: 100%;
+      margin: 9px 0;
+      padding: 13px;
+      border-radius: 8px;
+      border: 1px solid #45455b;
+      background: #0d0d16;
+      color: white;
+      font-size: 16px;
+    }
+    .video {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 0;
+      border-radius: 10px;
+      margin-top: 12px;
+      background: black;
+    }
+    .muted { color: #aaa8bd; font-size: 14px; }
+    footer {
+      text-align: center;
+      padding: 25px;
+      color: #aaa8bd;
+      border-top: 1px solid #303044;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">Clip<span>Zone</span> 🎬</div>
+    <span>Creator Hub</span>
+  </header>
+
+  <section class="hero">
+    <h1>Turn Moments Into Viral Clips.</h1>
+    <p>Your space for discovering videos, planning edits, and building better short-form content.</p>
+    <a href="#tools" class="button">Explore Clip Tools ↓</a>
+  </section>
+
+  <main>
+    <h2>🎥 YouTube Preview</h2>
+    <div class="card">
+      <p class="muted">Paste a YouTube video link below.</p>
+      <input id="videoUrl" placeholder="https://youtu.be/..." />
+      <button class="button" onclick="loadVideo()">Load Video</button>
+      <div id="preview"></div>
+      <p id="message" class="muted"></p>
+    </div>
+
+    <h2 id="tools">✂️ Clip Planner</h2>
+    <div class="card">
+      <label>Video title</label>
+      <input id="title" placeholder="e.g. 5 money lessons" />
+      <label>Start time (seconds)</label>
+      <input id="start" type="number" min="0" value="0" />
+      <label>Clip length (seconds)</label>
+      <input id="duration" type="number" min="1" value="30" />
+      <label>Caption idea</label>
+      <textarea id="caption" rows="3" placeholder="Write your hook or caption..."></textarea>
+      <button class="button" onclick="savePlan()">Save Clip Plan</button>
+      <p id="saved" class="muted"></p>
+    </div>
+
+    <h2>📝 My Clip Plans</h2>
+    <div id="plans"></div>
+    <p class="muted">Plans are saved in this browser on this device.</p>
+  </main>
+
+  <footer>ClipZone © 2026 · Create. Edit. Grow.</footer>
+
+  <script>
+    function loadVideo() {
+      const url = document.getElementById("videoUrl").value.trim();
+      const message = document.getElementById("message");
+      const preview = document.getElementById("preview");
+      let id = "";
+
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname.includes("youtu.be")) {
+          id = parsed.pathname.slice(1).split("/")[0];
+        } else if (parsed.hostname.endsWith("youtube.com")) {
+          id = parsed.searchParams.get("v") || "";
+          if (!id && parsed.pathname.startsWith("/embed/")) {
+            id = parsed.pathname.split("/")[2] || "";
+          }
+        }
+      } catch (e) {}
+
+      if (!/^[a-zA-Z0-9_-]{11}$/.test(id)) {
+        preview.innerHTML = "";
+        message.textContent = "Please enter a valid YouTube video link.";
+        return;
+      }
+
+      preview.innerHTML = '<iframe class="video" src="https://www.youtube-nocookie.com/embed/' +
+        id + '" title="YouTube video player" allowfullscreen></iframe>';
+      message.textContent = "If the owner allows embedding, the video will play here.";
+    }
+
+    function savePlan() {
+      const plan = {
+        title: document.getElementById("title").value.trim() || "Untitled clip",
+        start: Math.max(0, Number(document.getElementById("start").value) || 0),
+        duration: Math.max(1, Number(document.getElementById("duration").value) || 30),
+        caption: document.getElementById("caption").value.trim()
+      };
+
+      let plans = [];
+      try {
+        plans = JSON.parse(localStorage.getItem("clipzone-plans") || "[]");
+      } catch (e) {}
+
+      plans.unshift(plan);
+      try {
+        localStorage.setItem("clipzone-plans", JSON.stringify(plans));
+        document.getElementById("saved").textContent = "Plan saved successfully!";
+      } catch (e) {
+        document.getElementById("saved").textContent =
+          "Browser storage is unavailable. Copy your plan before leaving.";
+      }
+      renderPlans();
+    }
+
+    function renderPlans() {
+      let plans = [];
+      try {
+        plans = JSON.parse(localStorage.getItem("clipzone-plans") || "[]");
+      } catch (e) {}
+
+      document.getElementById("plans").innerHTML = plans.map(p =>
+        '<div class="card"><strong>' + escapeText(p.title) + '</strong>' +
+        '<p class="muted">Start: ' + p.start + 's · Length: ' +
+        p.duration + 's</p><p>' + escapeText(p.caption) + '</p></div>'
+      ).join("");
+    }
+
+    function escapeText(value) {
+      return String(value).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;",
+        '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    renderPlans();
+  </script>
+</body>
+</html>
